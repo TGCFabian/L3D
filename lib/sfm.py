@@ -133,7 +133,7 @@ if __name__ == "__main__":
     for i in range(7):
         print(f"working on {i}")
 
-        key_points = np.loadtxt(f'sfm_data/key_points_{i}.csv', delimiter=',')
+        key_points = np.loadtxt(f'../sfm_data/key_points_{i}.csv', delimiter=',')
 
         # aaagh key_points here lines up with pts1_
 
@@ -143,33 +143,39 @@ if __name__ == "__main__":
         if i == 0:
             continue
 
-        pts0_ = np.loadtxt(f'sfm_data/pts0_{i}.csv', delimiter=',')
-        pts1_ = np.loadtxt(f'sfm_data/pts1_{i}.csv', delimiter=',')
-        idx0 = np.loadtxt(f'sfm_data/idx0{i}.csv', delimiter=',', dtype=int)
-        idx1 = np.loadtxt(f'sfm_data/idx1{i}.csv', delimiter=',', dtype=int)
+        pts0_ = np.loadtxt(f'../sfm_data/pts0_{i}.csv', delimiter=',')  # Cell array of N 2D points from the first image, or numeric array Nx2/Nx1x2/1xNx2. The point coordinates should be floating-point (single or double precision).
+        pts1_ = np.loadtxt(f'../sfm_data/pts1_{i}.csv', delimiter=',')  # Cell array or numeric array of the second image points of the same size and format as points1.
+        idx0 = np.loadtxt(f'../sfm_data/idx0{i}.csv', delimiter=',', dtype=int)  # pts0_'s id's
+        idx1 = np.loadtxt(f'../sfm_data/idx1{i}.csv', delimiter=',', dtype=int)  # pts1_'s id's
+
 
         E, mask = cv2.findEssentialMat(pts0_, pts1_, K, method=cv2.RANSAC, prob=0.999, threshold=1)
-        idx0 = idx0[mask.ravel() == 1]
-        idx1 = idx1[mask.ravel() == 1]
+
+        #E = Essential matrix, 3x3. (camera to camera)
+        #mask = vector of all elements, every element of which is set to 0 for outliers and to 1 for inliers.
+        # ravel() = flatten
+
+        idx0_inliers = idx0[mask.ravel() == 1]
+        idx1_inliers = idx1[mask.ravel() == 1]
         _, R, t, _ = cv2.recoverPose(E, pts0_[mask.ravel() == 1], pts1_[mask.ravel() == 1], K)
 
         if i > 1:
-            match = np.int32(np.where(cameras[i - 1].match2d3d[idx0] != -1)[0])
+            match = np.int32(np.where(cameras[i - 1].match2d3d[idx0_inliers] != -1)[0])
 
             if len(match) < 8:
                 continue
 
             _, rvecs, t, _ = cv2.solvePnPRansac(
-                np.float32(point_cloud)[cameras[i - 1].match2d3d[idx0[match]]],
-                cameras[i].kp[idx1[match]],
-                K,
-                np.zeros((5, 1), dtype=np.float32),
-                cv2.SOLVEPNP_ITERATIVE)
+                np.float32(point_cloud)[cameras[i - 1].match2d3d[idx0_inliers[match]]], # Array of object points in the object coordinate space, 1xNx3/Nx1x3 or Nx3 array, where N is the number of points, or cell array of length N of 3-element vectors can be also passed here {[x,y,z], ...}.
+                cameras[i].kp[idx1_inliers[match]],  # Array of corresponding image points, 1xNx2/Nx1x2 or Nx2 array, where N is the number of points, or cell array of length N of 2-element vectors can be also passed here {[x,y], ...}.
+                K, # camera matrix
+                np.zeros((5, 1), dtype=np.float32),  # distortion coefficients
+                cv2.SOLVEPNP_ITERATIVE)  # method
 
             R, _ = cv2.Rodrigues(rvecs)
 
         cameras[i].setRt(R, t)
-        triangulate(cameras[i - 1], cameras[i], idx0, idx1, K)
+        triangulate(cameras[i - 1], cameras[i], idx0_inliers, idx1_inliers, K)
 
-    to_ply("sfm_data/", np.array(point_cloud))
-    to_ply("sfm_data/", np.array([cam.getPos() for cam in cameras]), '_campos.ply')
+    to_ply("../sfm_data/", np.array(point_cloud))
+    to_ply("../sfm_data/", np.array([cam.getPos() for cam in cameras]), '_campos.ply')
